@@ -11,7 +11,7 @@ class AttendanceLog:
         self._cache_date = None
 
     def _file_for_today(self):
-        date_str = datetime.now().strftime("%d-%m-%Y")
+        date_str = datetime.now().strftime("%Y-%m-%d")
         day_dir = os.path.join(config.ATTENDANCE_DIR, date_str)
         os.makedirs(day_dir, exist_ok=True)
         file_path = os.path.join(day_dir, "attendance.csv")
