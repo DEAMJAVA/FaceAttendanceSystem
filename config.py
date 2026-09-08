@@ -1,7 +1,13 @@
 import os
 import cv2
+import sys
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, "frozen", False):
+    BASE_DIR = os.path.dirname(sys.executable)
+    BUNDLE_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    BUNDLE_DIR = BASE_DIR
 
 IMAGES_DIR = os.path.join(BASE_DIR, "images")
 MODELS_DIR = os.path.join(BASE_DIR, "models")
@@ -12,8 +18,8 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 os.makedirs(ATTENDANCE_DIR, exist_ok=True)
 
 
-YUNET_MODEL_PATH = os.path.join(MODELS_DIR, "face_detection_yunet.onnx")
-SFACE_MODEL_PATH = os.path.join(MODELS_DIR, "face_recognition_sface.onnx")
+YUNET_MODEL_PATH = os.path.join(BUNDLE_DIR, "models", "face_detection_yunet.onnx")
+SFACE_MODEL_PATH = os.path.join(BUNDLE_DIR, "models", "face_recognition_sface.onnx")
 LBPH_MODEL_PATH = os.path.join(MODELS_DIR, "trainer.yml")
 LABEL_MAP_PATH = os.path.join(MODELS_DIR, "label_map.npy")
 EMBEDDINGS_PATH = os.path.join(MODELS_DIR, "embeddings.npz")
