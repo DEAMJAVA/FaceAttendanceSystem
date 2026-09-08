@@ -1,8 +1,16 @@
 import os
+from collections import Counter
+
 import cv2
 import numpy as np
 
 import config
+
+
+def _cosine_sim(query, matrix):
+    q = query / (np.linalg.norm(query, axis=1, keepdims=True) + 1e-9)
+    m = matrix / (np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-9)
+    return (m @ q.T).flatten()
 
 
 class SFaceRecognizer:
@@ -15,46 +23,105 @@ class SFaceRecognizer:
                 "isn't available and the fallback LBPH recognizer will be used."
             )
         self.model = cv2.FaceRecognizerSF.create(model_path, "")
-        self.names = []          # list[str], index -> name
-        self.embeddings = None   # (N, 128) float32
+        self.names = []
+        self.centroids = None
+        self.raw_names = []
+        self.raw_embeddings = None
+
+    def align(self, frame, detection):
+        if detection.landmarks is not None:
+            row = detection.as_yunet_row().reshape(1, -1)
+            return self.model.alignCrop(frame, row)
+        x, y, w, h = detection.box
+        crop = frame[max(0, y):y + h, max(0, x):x + w]
+        if crop.size == 0:
+            return None
+        return cv2.resize(crop, config.FACE_ALIGN_SIZE)
 
     def _embed(self, aligned_bgr_face):
         feature = self.model.feature(aligned_bgr_face)
         return feature.flatten()
 
     def enroll(self, name, aligned_face_crops):
-        for crop in aligned_face_crops:
-            emb = self._embed(crop)
+        embs = np.array(
+            [self._embed(c) for c in aligned_face_crops], dtype=np.float32
+        )
+        if len(embs) == 0:
+            return
+
+        if len(embs) > 3:
+            provisional_centroid = embs.mean(axis=0, keepdims=True)
+            sims = _cosine_sim(provisional_centroid, embs)
+            keep = sims >= (sims.mean() - 1.5 * sims.std())
+            if keep.any():
+                embs = embs[keep]
+
+        self.raw_names.extend([name] * len(embs))
+        self.raw_embeddings = (
+            embs if self.raw_embeddings is None
+            else np.vstack([self.raw_embeddings, embs])
+        )
+
+        centroid = embs.mean(axis=0)
+        if name in self.names:
+            idx = self.names.index(name)
+            self.centroids[idx] = centroid
+        else:
             self.names.append(name)
-            if self.embeddings is None:
-                self.embeddings = emb.reshape(1, -1)
-            else:
-                self.embeddings = np.vstack([self.embeddings, emb.reshape(1, -1)])
+            self.centroids = (
+                centroid.reshape(1, -1) if self.centroids is None
+                else np.vstack([self.centroids, centroid.reshape(1, -1)])
+            )
 
     def save(self, path=None):
         path = path or config.EMBEDDINGS_PATH
-        np.savez(path, names=np.array(self.names), embeddings=self.embeddings)
+        np.savez(
+            path,
+            names=np.array(self.names),
+            centroids=self.centroids,
+            raw_names=np.array(self.raw_names),
+            raw_embeddings=self.raw_embeddings,
+        )
 
     def load(self, path=None):
         path = path or config.EMBEDDINGS_PATH
         data = np.load(path, allow_pickle=True)
         self.names = list(data["names"])
-        self.embeddings = data["embeddings"]
+        self.centroids = data["centroids"]
+        self.raw_names = list(data["raw_names"])
+        self.raw_embeddings = data["raw_embeddings"]
 
     def recognize(self, aligned_face_crop):
-        if self.embeddings is None or len(self.names) == 0:
+        if self.centroids is None or len(self.names) == 0:
             return None, 0.0
+
         query = self._embed(aligned_face_crop).reshape(1, -1)
-        best_name, best_score = None, -1.0
-        for name, emb in zip(self.names, self.embeddings):
-            score = self.model.match(
-                query, emb.reshape(1, -1), cv2.FaceRecognizerSF_FR_COSINE
-            )
-            if score > best_score:
-                best_score, best_name = score, name
-        if best_score >= config.SFACE_MATCH_THRESHOLD:
-            return best_name, best_score
-        return None, best_score
+        scores = _cosine_sim(query, self.centroids)
+        order = np.argsort(scores)[::-1]
+        best_idx = order[0]
+        best_score = scores[best_idx]
+
+        if best_score < config.SFACE_MATCH_THRESHOLD:
+            return None, best_score
+
+        if len(self.names) > 1:
+            second_score = scores[order[1]]
+            if (best_score - second_score) < config.SFACE_MATCH_MARGIN:
+                return None, best_score  # too close to call
+
+        if self.raw_embeddings is not None and len(self.raw_embeddings) > 0:
+            raw_scores = _cosine_sim(query, self.raw_embeddings)
+            k = min(config.SFACE_KNN_K, len(raw_scores))
+            top_k_idx = np.argsort(raw_scores)[::-1][:k]
+            top_k_names = [self.raw_names[i] for i in top_k_idx]
+            vote_name, vote_count = Counter(top_k_names).most_common(1)[0]
+            if (
+                vote_name != self.names[best_idx]
+                or vote_count / k < config.SFACE_KNN_AGREEMENT
+            ):
+                return None, best_score
+
+        return self.names[best_idx], best_score
 
 
 class LBPHRecognizer:

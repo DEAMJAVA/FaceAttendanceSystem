@@ -37,7 +37,7 @@ def _train_sface(recognizer, detector, people):
             else:
                 dets = detector.detect(img)
                 if dets:
-                    aligned = align_face(img, dets[0])
+                    aligned = recognizer.align(img, dets[0])
                     if aligned is not None:
                         crops.append(aligned)
         if crops:

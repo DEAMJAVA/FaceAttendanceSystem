@@ -1,4 +1,6 @@
 import argparse
+from collections import Counter, deque
+
 import cv2
 
 import config
@@ -7,6 +9,45 @@ from face_recognizer import create_recognizer, has_saved_model, SFaceRecognizer
 from attendance import AttendanceLog
 from dataset import capture_faces
 from train import train_model
+
+
+class FaceTracker:
+
+    def __init__(self, max_center_dist=None, history=None, confirm_ratio=None):
+        self.max_center_dist = max_center_dist or config.TRACK_MAX_CENTER_DIST
+        self.history = history or config.TRACK_HISTORY
+        self.confirm_ratio = confirm_ratio or config.TRACK_CONFIRM_RATIO
+        self._tracks = {}  # id -> {"center": (x, y), "votes": deque[str|None]}
+        self._next_id = 0
+
+    def update(self, det, name):
+        cx, cy = det.x + det.w / 2, det.y + det.h / 2
+        best_id, best_dist = None, self.max_center_dist
+        for tid, t in self._tracks.items():
+            dist = ((t["center"][0] - cx) ** 2 + (t["center"][1] - cy) ** 2) ** 0.5
+            if dist < best_dist:
+                best_dist, best_id = dist, tid
+
+        if best_id is None:
+            best_id = self._next_id
+            self._next_id += 1
+            self._tracks[best_id] = {
+                "center": (cx, cy),
+                "votes": deque(maxlen=self.history),
+            }
+
+        self._tracks[best_id]["center"] = (cx, cy)
+        self._tracks[best_id]["votes"].append(name)
+        return best_id
+
+    def confirmed_name(self, track_id):
+        votes = self._tracks[track_id]["votes"]
+        if len(votes) < self.history:
+            return None
+        winner, count = Counter(votes).most_common(1)[0]
+        if winner is not None and count / len(votes) >= self.confirm_ratio:
+            return winner
+        return None
 
 
 def run_recognition(camera_index=None):
@@ -20,6 +61,7 @@ def run_recognition(camera_index=None):
     recognizer.load()
 
     attendance = AttendanceLog()
+    tracker = FaceTracker()
     cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open webcam (index {camera_index}).")
@@ -32,21 +74,27 @@ def run_recognition(camera_index=None):
                 break
 
             for det in detector.detect(frame):
-                aligned = align_face(frame, det)
-                if aligned is None:
-                    continue
-
                 if isinstance(recognizer, SFaceRecognizer):
+                    aligned = recognizer.align(frame, det)
+                    if aligned is None:
+                        continue
                     name, score = recognizer.recognize(aligned)
                 else:
+                    aligned = align_face(frame, det)
+                    if aligned is None:
+                        continue
                     gray_crop = cv2.cvtColor(aligned, cv2.COLOR_BGR2GRAY)
                     name, score = recognizer.recognize(gray_crop)
 
+                track_id = tracker.update(det, name)
+                confirmed = tracker.confirmed_name(track_id)
+                if confirmed:
+                    attendance.mark(confirmed)
+
                 x, y, w, h = det.box
                 if name:
-                    attendance.mark(name)
-                    color = (0, 255, 0)
-                    label = name
+                    color = (0, 255, 0) if confirmed else (0, 165, 255)
+                    label = f"{name} ({score:.2f})" if confirmed else f"{name}?"
                 else:
                     color = (0, 0, 255)
                     label = "Unknown"
@@ -69,7 +117,8 @@ def run_capture(camera_index=None):
         print("[main] Name cannot be empty.")
         return
     detector = create_detector()
-    capture_faces(name, detector, camera_index=camera_index)
+    recognizer = create_recognizer()
+    capture_faces(name, detector, camera_index=camera_index, recognizer=recognizer)
 
 
 def main():
