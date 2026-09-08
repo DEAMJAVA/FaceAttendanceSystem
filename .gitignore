@@ -2,3 +2,4 @@
 .venv
 attendances/*
 images/*
+models/*

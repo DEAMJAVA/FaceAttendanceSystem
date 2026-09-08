@@ -5,13 +5,14 @@ import config
 from face_detector import align_face
 
 
-def capture_faces(name, detector, count=config.CAPTURE_IMAGE_COUNT):
+def capture_faces(name, detector, count=config.CAPTURE_IMAGE_COUNT, camera_index=None):
+    camera_index = config.CAMERA_INDEX if camera_index is None else camera_index
     person_dir = os.path.join(config.IMAGES_DIR, name)
     os.makedirs(person_dir, exist_ok=True)
 
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
-        raise RuntimeError("Could not open webcam (index 0).")
+        raise RuntimeError(f"Could not open webcam (index {camera_index}).")
 
     saved = 0
     print(f"[dataset] Capturing up to {count} images for '{name}'. Press 'q' to stop early.")

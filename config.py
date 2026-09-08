@@ -28,14 +28,11 @@ def candidate_haarcascade_paths(filename="haarcascade_frontalface_default.xml"):
     data_attr = getattr(cv2, "data", None)
     if data_attr is not None and hasattr(data_attr, "haarcascades"):
         candidates.append(os.path.join(cv2.data.haarcascades, filename))
-
     cv2_pkg_dir = os.path.dirname(cv2.__file__)
     candidates.append(os.path.join(cv2_pkg_dir, "data", filename))
-
     candidates.append(os.path.join("/usr/share/opencv4/haarcascades", filename))
     candidates.append(os.path.join("/usr/local/share/opencv4/haarcascades", filename))
     return candidates
-
 
 YUNET_SCORE_THRESHOLD = 0.8
 YUNET_NMS_THRESHOLD = 0.3
@@ -50,4 +47,6 @@ SFACE_MATCH_THRESHOLD = 0.363
 LBPH_CONFIDENCE_THRESHOLD = 70
 
 CAPTURE_IMAGE_COUNT = 30
-FACE_ALIGN_SIZE = (112, 112) 
+FACE_ALIGN_SIZE = (112, 112)
+
+CAMERA_INDEX = 0

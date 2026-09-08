@@ -9,7 +9,8 @@ from dataset import capture_faces
 from train import train_model
 
 
-def run_recognition():
+def run_recognition(camera_index=None):
+    camera_index = config.CAMERA_INDEX if camera_index is None else camera_index
     detector = create_detector()
     recognizer = create_recognizer()
 
@@ -19,9 +20,9 @@ def run_recognition():
     recognizer.load()
 
     attendance = AttendanceLog()
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
-        raise RuntimeError("Could not open webcam (index 0).")
+        raise RuntimeError(f"Could not open webcam (index {camera_index}).")
 
     print("[main] Starting recognition. Press 'q' to quit.")
     try:
@@ -62,13 +63,13 @@ def run_recognition():
         cv2.destroyAllWindows()
 
 
-def run_capture():
+def run_capture(camera_index=None):
     name = input("Enter the person's name: ").strip().capitalize()
     if not name:
         print("[main] Name cannot be empty.")
         return
     detector = create_detector()
-    capture_faces(name, detector)
+    capture_faces(name, detector, camera_index=camera_index)
 
 
 def main():
@@ -76,14 +77,18 @@ def main():
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-c", "--capture", action="store_true", help="capture a new person's face images")
     group.add_argument("-t", "--train", action="store_true", help="(re)train the recognition model")
+    parser.add_argument(
+        "--camera", type=int, default=None,
+        help=f"camera index to use (overrides config.CAMERA_INDEX, default {config.CAMERA_INDEX})",
+    )
     args = parser.parse_args()
 
     if args.capture:
-        run_capture()
+        run_capture(camera_index=args.camera)
     elif args.train:
         train_model()
     else:
-        run_recognition()
+        run_recognition(camera_index=args.camera)
 
 
 if __name__ == "__main__":
