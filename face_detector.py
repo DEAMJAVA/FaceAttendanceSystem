@@ -18,6 +18,19 @@ class Detection:
     def box(self):
         return (self.x, self.y, self.w, self.h)
 
+    def as_yunet_row(self):
+        if self.landmarks is None:
+            raise ValueError(
+                "This detection has no landmarks (came from the Haar "
+                "fallback detector), so it can't be used with SFace's "
+                "alignCrop. Naive-crop alignment is used instead in that case."
+            )
+        row = np.zeros((15,), dtype=np.float32)
+        row[0:4] = [self.x, self.y, self.w, self.h]
+        row[4:14] = self.landmarks.astype(np.float32).flatten()
+        row[14] = self.confidence
+        return row
+
 
 class HaarCascadeDetector:
 
